@@ -2,17 +2,16 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import norm, multivariate_normal
 import copy
+import torch
+from torch import nn
 
 # Riemann-Liouville representation of fBM
 def fractional_BM_paths(alpha: float,T: float, N: int):
-
     if not(-1/2 < alpha <= 0):
         raise('Error : Hurst index must be in ]-1/2, 0]')
-
     brownian_shocks = []
     path = []
     delta = T/N
-
     # Helper function for coefficients of the fBM generation
     def b(k: int):
         weight = delta**alpha
@@ -57,6 +56,20 @@ def rough_vol_process(alpha: float, T: float, N: int, V0: float,
     return V0*np.exp(nu * y - 0.5 * nu**2 * t**(2 * alpha + 1))
 
     return path
+  
+  #stock price process with EM scheme
+  def stock_price_process(S0: float, T: float, N: int, rho: float, 
+                          path: np.array, brownian_shocks: list):
+    delta = T/N
+    BM = np.asarray(brownian_shocks)
+    indep_BM = norm.rvs(scale = np.sqrt(delta), size = N )
+    stock_price = np.zeros(N + 1)
+    stock_price[0] = S0
+    for i in range(N):
+      stock_price[i+1] = stock_price[i] + stock_price[i] * np.sqrt(path[i]) *(np.sqrt(1 - rho**2)*indep_BM[i] + rho*BM[i])
+    return stock_price
+
+#forward variance path
 
 def forward_variance_paths(alpha, T, N, V0, nu, T_fwd, brownian_shocks):
     if T_fwd <= T:
@@ -77,6 +90,33 @@ def forward_variance_paths(alpha, T, N, V0, nu, T_fwd, brownian_shocks):
 
     return V0*np.concatenate(([1.0], np.cumprod(factors)))
 
+#architecture for each NN - will have 1 per trading/hedging day
+class NeuralNetwork(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(3, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Linear(32, 2),
+        )
 
+    def forward(self, x):
+        logits = self.linear_relu_stack(x)
+        return logits
 
+class MyModule(nn.Module):
+    def __init__(self, N) -> None:
+        super().__init__()
+        self.linears = nn.ModuleList([NeuralNetwork() for _ in range(N)])
 
+    #input x is 3d vector with values [path_number, day, data features]
+    def forward(self, x):
+      N = x.shape[1]
+      result = []
+      for i in range(N):
+        data = x[:, i, :]
+        hedge = self.linears[i](data)
+        result.append(hedge)
+      return torch.stack(result, dim = 1)
