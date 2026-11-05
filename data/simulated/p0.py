@@ -40,7 +40,7 @@ def simulate_price_path(
     return stock_price_process(S0, T, N, rho, variance_path, brownian_shocks)
 
 
-def p0(
+def p0_MC(
     M: int = 10_000,
     K: float = 100.0,
     batch_size: int = 1000,
@@ -64,7 +64,7 @@ def p0(
 
 
 if __name__ == "__main__":
-    print("Estimated price in 3.5M paths : ", p0(M = 3500000, K = 100.0, S0= 100.0,
+    print("Estimated price in 3.5M paths : ", p0_MC(M = 3500000, K = 100.0, S0= 100.0,
         T= 30 / 365,
         N = 30,
         H= 0.10,

@@ -1,3 +1,11 @@
 .env
-*__pycache__*
+__pycache__/
+*.py[cod]
 .vscode/settings.json
+
+# Generated train/test path datasets
+/data/simulated/alpha_*/
+
+# Local pricing experiments and temporary files
+/experiments/
+/tmp/

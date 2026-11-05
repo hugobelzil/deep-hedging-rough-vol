@@ -2,12 +2,13 @@ import torch
 from torch import nn
 
 class LSTMHedger(nn.Module):
-    def __init__(self, hidden_size = 32, strike = 100):
+    def __init__(self, hidden_size = 32, strike = 100, log_moneyness = True):
          # what does nn.module do ?
         super().__init__()
-        self.cell = nn.LSTMCell(input_size=3, hidden_size=hidden_size)
+        self.cell = nn.LSTMCell(input_size=2, hidden_size=hidden_size)
         self.hidden_to_hedge = nn.Linear(hidden_size, 2)
         self.strike = strike
+        self.log_moneyness = bool(log_moneyness) # forces true/false ?
 
     def forward(self, prices):
         """assuming the current structure : prices : [batch, N+1, 2]
@@ -23,15 +24,17 @@ class LSTMHedger(nn.Module):
         spot = prices[:, :, 0]
         forward_var = prices[:, :, 1]
 
-        log_moneyness = torch.log(spot / self.strike)
-        inputs = torch.stack((log_moneyness, forward_var), dim=-1)
+        if self.log_moneyness == True:
+            spot = torch.log(spot / self.strike)
+    
+        inputs = torch.stack((spot, forward_var), dim=-1)
 
         holdings = []
         for k in range(n_dates - 1):
             h, c = self.cell(inputs[:, k, :], (h, c))
             holdings.append(self.hidden_to_hedge(h))
 
-        return torch.stack(holdings, dim = -1) # [batch, N, 2]
+        return torch.stack(holdings, dim=1) # [batch, N, 2]
 
 
 def hedging_loss(model, prices, strike, option_price):
@@ -46,26 +49,3 @@ def hedging_loss(model, prices, strike, option_price):
     return pnl.square().mean()
 
 
-# train_paths and val_paths come from the rBergomi simulator
-# Both must have tensor shape [number_of_paths, N+1, 2]
-model = LSTMHedger(hidden_size=32)
-optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
-
-strike = 100.0
-option_price = # price to obtain form monte carlo
-for epoch in range(100):
-    model.train()
-
-    for prices in train_loader:
-        optimizer.zero_grad()
-        loss = hedging_loss(model, prices, strike, option_price)
-        loss.backward()
-        optimizer.step()
-
-    model.eval()
-    with torch.no_grad():
-        validation_loss = hedging_loss(
-            model, val_paths, strike, option_price
-        )
-
-    print(epoch, loss.item(), validation_loss.item())

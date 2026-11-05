@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.stats import norm, multivariate_normal
+import os
 
 # RIEMANN-LIOUVILLE REPRESENTATION OF FRACTIONAL BROWNIAN MOTION
 
@@ -79,7 +80,7 @@ def stock_price_process(S0: float, T: float, N: int, rho: float,
         )
     return stock_price
 
-# FORWARD VARIANCE PATHS
+# FORWARD VARIANCE PATHS (EULER-MARUYAMA ON LOG(THETA) TO ENSURE POSITIVITY)
 
 def forward_variance_paths(alpha, T, N, V0, nu, T_fwd, brownian_shocks):
     if T_fwd <= T:
@@ -91,12 +92,37 @@ def forward_variance_paths(alpha, T, N, V0, nu, T_fwd, brownian_shocks):
 
     t = np.arange(N) * (T / N)  # Left endpoints
 
-    factors = 1 + (
-        np.sqrt(2 * alpha + 1)
-        * nu
-        * (T_fwd - t)**alpha
-        * dW
-    )
+    def a(t):
+        return np.sqrt(2*alpha + 1)*nu*np.pow(T_fwd - t, alpha)
+
+    a_values = a(t)
+
+    factors = a_values * dW
+    factors -= 0.5 * a_values**2 * (T/N)
+    factors = np.exp(factors)
 
     initial = np.ones(dW.shape[:-1] + (1,))
     return V0*np.concatenate((initial, np.cumprod(factors, axis=-1)), axis=-1)
+
+# BUILDING THE DATASETS
+# Each file has shape (n_paths, N+1, 2), with columns [stock, forward variance].
+# This crosses all four rough H values with all four hedging frequencies.
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    T, T_fwd = 30 / 365, 45 / 365
+    S0, V0, nu, rho = 100.0, 0.235**2, 1.9, -0.7
+
+    for alpha in [-0.4, -0.3, -0.2, -0.1]:
+        for N in [15, 30, 60, 120]:
+            folder = os.path.join(
+                os.path.dirname(__file__), f"alpha_{alpha:.1f}", f"N_{N}"
+            )
+            os.makedirs(folder, exist_ok=True)
+            for split, n_paths in [("train", 100_000), ("test", 20_000)]:
+                Y, dW = fractional_BM_paths(alpha, T, N, n_paths)
+                V = rough_vol_process(alpha, T, N, V0, nu, Y, dW)
+                S = stock_price_process(S0, T, N, rho, V, dW)
+                F = forward_variance_paths(alpha, T, N, V0, nu, T_fwd, dW)
+                np.save(os.path.join(folder, f"{split}.npy"), np.stack((S, F), axis=-1))
+                print(f"Saved {split}: alpha={alpha:.1f}, N={N}, paths={n_paths}")
